@@ -36,7 +36,7 @@ from transformers import (
 )
 from bert_deid import tokenization, processors
 from bert_deid.label import LabelCollection, LABEL_SET, LABEL_MEMBERSHIP
-from bert_deid.bert import BERTBiLSTM 
+from bert_deid.bert_bilstm import BERTBiLSTM 
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 MODEL_CLASSES = {
     "bert": (BertConfig, BertForTokenClassification, BertTokenizer),
     "bert_bilstm_crf": (BertConfig, BertModel, BertTokenizer),
-    "bert_bilstm": (BertConfig, BertModel, BertTokenizer)
+    "bert_bilstm": (BertConfig, BERTBiLSTM, BertTokenizer)
 }
 
 
@@ -301,21 +301,21 @@ def argparser():
     # for feature-based bert
     parser.add_argument(
         '--num_lstm_layers',
-        default=1,
+        default=2,
         help=(
             'Feature-based BERT, number of LSTM layers on top layers'
         )
     )
     parser.add_argument(
         '--lstm_bidirectional',
-        default=False,
+        default=True,
         help=(
             'Feature-based BERT, LSTM is bidirectional or not'
         )
     )
     parser.add_argument(
         '--top_rnns',
-        default=False,
+        default=True,
         help=(
             'Feature-based BERT, add LSTM on top of BERT'
         )
