@@ -65,6 +65,13 @@ if __name__ == '__main__':
         choices=list(LABEL_MEMBERSHIP.keys()),
         help="Label transformation to apply."
     )
+    parser.add_argument(
+        "--feature",
+        type=str,
+        nargs='+',
+        default=None,
+        help="Perform rule-based approach with stanfordNER patterns"
+    )
     args = parser.parse_args()
 
     # prepare the label set - gives us mapping from ID to label
@@ -72,9 +79,21 @@ if __name__ == '__main__':
         bio=args.bio, transform=args.label_transform
     )
 
+    args.patterns = []
+    if args.feature is not None:
+        for f in args.feature:
+            f = f.upper()
+            if f not in set(["ORGANIZATION", "PERSON", "LOCATION", "ALL"]):
+                raise ValueError("Invalid feature name")
+            args.patterns.append(f)
+    
+    if 'ALL' in args.patterns:
+        args.patterns = ["ORGANIZATION", "PERSON", "LOCATION"]
+
     # load in a trained model
     transformer = Transformer(
-        args.model_type, args.model_dir, max_seq_length=128, device='cpu', bert_model_name_or_path=args.model_name_or_path
+        args.model_type, args.model_dir, max_seq_length=128, device='cpu', bert_model_name_or_path=args.model_name_or_path,
+        patterns=args.patterns
     )
 
     label_to_id = transformer.label_set.label_to_id

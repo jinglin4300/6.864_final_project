@@ -37,6 +37,8 @@ from transformers import (
 from bert_deid import tokenization, processors
 from bert_deid.label import LabelCollection, LABEL_SET, LABEL_MEMBERSHIP
 from bert_deid.bert_bilstm import BERTBiLSTM 
+from bert_deid.bilstm_feature import BiLSTM_FEATURE
+from bert_deid.bert_stanfordner import BERTStanfordNER
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -51,7 +53,9 @@ logger = logging.getLogger(__name__)
 MODEL_CLASSES = {
     "bert": (BertConfig, BertForTokenClassification, BertTokenizer),
     "bert_bilstm_crf": (BertConfig, BertModel, BertTokenizer),
-    "bert_bilstm": (BertConfig, BERTBiLSTM, BertTokenizer)
+    "bert_bilstm": (BertConfig, BERTBiLSTM, BertTokenizer), 
+    "bilstm_feature": (BertConfig, BiLSTM_FEATURE, BertTokenizer),
+    "bert_stanfordner": (BertConfig, BERTStanfordNER, BertTokenizer),
 }
 
 
@@ -314,11 +318,11 @@ def argparser():
         )
     )
     parser.add_argument(
-        '--top_rnns',
-        default=True,
-        help=(
-            'Feature-based BERT, add LSTM on top of BERT'
-        )
+        "--feature",
+        type=str,
+        nargs='+',
+        default=None,
+        help="Perform rule-based approach with pydeid patterns: person, organization, location "
     )
 
     return parser
@@ -551,6 +555,7 @@ def train(args, train_dataset, model, tokenizer, processor, pad_token_label_id):
                             processor=processor,
                             pad_token_label_id=pad_token_label_id,
                             mode='dev',
+                            patterns=args.patterns
                         )
                         results, _ = evaluate(
                             args=args,
@@ -711,7 +716,7 @@ def evaluate(
 
 
 def load_and_cache_examples(
-    args, tokenizer, processor, pad_token_label_id, mode
+    args, tokenizer, processor, pad_token_label_id, mode, patterns
 ):
     if args.local_rank not in [-1, 0] and not evaluate:
         # Make sure only the first process in distributed
@@ -736,7 +741,7 @@ def load_and_cache_examples(
     else:
         logger.info("Creating features from dataset file at %s", args.data_dir)
         # get examples (mode can be 'train', 'test', or 'val')
-        examples = processor.get_examples(mode)
+        examples = processor.get_examples(mode, patterns)
         features = tokenization.convert_examples_to_features(
             examples,
             processor.label_set.label_to_id,
@@ -848,6 +853,22 @@ def main():
     labels = processor.label_set.label_list
     label_map = processor.label_set.label_to_id
 
+    args.patterns = []
+    if args.feature is not None:
+        for f in args.feature:
+            f = f.upper()
+            if f not in set(["ORGANIZATION", "PERSON", "LOCATION", "ALL"]):
+                raise ValueError("Invalid feature name")
+            args.patterns.append(f)
+    if 'ALL' in args.patterns:
+        args.patterns = ["ORGANIZATION", "PERSON", "LOCATION"]
+
+    print ('patterns', args.patterns)
+
+    if args.model_type == 'bert_stanfordner':
+        if len(args.patterns) == 0:
+            raise ValueError("Add stanfordNER pattern to perform bert-feature ensemble")
+
         # Load pretrained model and tokenizer
     if args.local_rank not in [-1, 0]:
         # Make sure only the first process in distributed
@@ -872,12 +893,18 @@ def main():
         cache_dir=args.cache_dir if args.cache_dir else None,
     )
 
-    model = model_class.from_pretrained(
-        args.model_name_or_path,
-        from_tf=bool(".ckpt" in args.model_name_or_path),
-        config=config,
-        cache_dir=args.cache_dir if args.cache_dir else None,
-    )
+    model_params = {
+        'pretrained_model_name_or_path': args.model_name_or_path,
+        'from_tf': bool(".ckpt" in args.model_name_or_path),
+        'config': config,
+        'cache_dir': args.cache_dir if args.cache_dir else None
+    }
+
+    if args.model_type == 'bert_stanfordner':
+        model_params['num_features'] = len(args.patterns)
+
+    model = model_class.from_pretrained(**model_params)
+
 
 
     # Use cross entropy ignore index as padding label id so
@@ -902,6 +929,7 @@ def main():
             processor=processor, 
             pad_token_label_id=pad_token_label_id,
             mode="train", 
+            patterns=args.patterns
         )
         global_step, tr_loss = train(
             args, train_dataset, model, tokenizer, processor, pad_token_label_id
@@ -961,7 +989,7 @@ def main():
                 global_step = ""
             model = model_class.from_pretrained(checkpoint)
             model.to(args.device)
-            eval_dataset=load_and_cache_examples(args, tokenizer, processor, pad_token_label_id, mode='val')
+            eval_dataset=load_and_cache_examples(args, tokenizer, processor, pad_token_label_id, mode='val', patterns=args.patterns)
             result, _ = evaluate(
                 args=args,
                 eval_dataset=eval_dataset,

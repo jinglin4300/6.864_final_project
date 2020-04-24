@@ -24,6 +24,7 @@ import os
 import unicodedata
 import itertools
 from bisect import bisect_left, bisect_right
+from bert_deid.ensemble_feature import find_phi_location, create_extra_feature_vector
 
 import numpy as np
 
@@ -46,6 +47,7 @@ class InputFeatures(object):
         input_subwords=None,
         input_offsets=None,
         input_lengths=None,
+        extra_feature=None,
     ):
         self.input_ids = input_ids
         self.input_mask = input_mask
@@ -56,6 +58,8 @@ class InputFeatures(object):
         self.input_subwords = input_subwords
         self.input_offsets = input_offsets
         self.input_lengths = input_lengths
+
+        self.extra_feature = extra_feature
 
 
 def tokenize_with_labels(
@@ -206,6 +210,14 @@ def convert_examples_to_features(
         if ex_index % 10000 == 0:
             logger.info("Writing example %d of %d", ex_index, len(examples))
 
+        patterns = example.patterns
+        pattern_label = 1
+        ex_phi_locs = []
+        for pattern in patterns:
+            ex_phi_locs.append(find_phi_location(pattern, pattern_label, example.text, stanfordNER=True))
+
+        assert (len(patterns) == len(ex_phi_locs))
+
         ex_tokens, ex_labels, ex_token_sw, ex_offsets, ex_lengths = tokenize_with_labels(
             tokenizer, example, pad_token_label_id=pad_token_label_id
         )
@@ -314,6 +326,10 @@ def convert_examples_to_features(
                 lengths += [-1] * padding_length
                 token_sw += [False] * padding_length
 
+            extra_features = []
+            for i in range(len(ex_phi_locs)):
+                extra_feature = create_extra_feature_vector(ex_phi_locs[i], offsets, lengths, token_sw)
+                extra_features.append(extra_feature)
 
 
             assert len(input_ids) == max_seq_length
@@ -323,6 +339,10 @@ def convert_examples_to_features(
             assert len(offsets) == max_seq_length
             assert len(lengths) == max_seq_length
             assert len(token_sw) == max_seq_length
+            if len(extra_features) > 0:
+                assert len(extra_features[0]) == max_seq_length
+                assert len(extra_features) == len(example.patterns)
+
 
             if n_obs < 5:
                 logger.info("*** Example ***")

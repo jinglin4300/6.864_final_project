@@ -29,11 +29,15 @@ from transformers import (
 from bert_deid import tokenization, processors
 from bert_deid.label import LABEL_SET, LabelCollection, LABEL_MEMBERSHIP
 from bert_deid.bert_bilstm import BERTBiLSTM
+from bert_deid.bilstm_feature import BiLSTM_FEATURE
+from bert_deid.bert_stanfordner import BERTStanfordNER
 
 MODEL_CLASSES = {
     "bert": (BertConfig, BertForTokenClassification, BertTokenizer),
     "bert_bilstm_crf": (BertConfig, BertModel, BertTokenizer),
-    "bert_bilstm": (BertConfig, BERTBiLSTM, BertTokenizer)
+    "bert_bilstm": (BertConfig, BERTBiLSTM, BertTokenizer), 
+    "bilstm_feature": (BertConfig, BiLSTM_FEATURE, BertTokenizer),
+    "bert_stanfordner": (BertConfig, BERTStanfordNER, BertTokenizer),
 }
 
 logger = logging.getLogger(__name__)
@@ -71,10 +75,12 @@ class Transformer(object):
         # sequence_length=100,
         max_seq_length=128,
         device='cpu', 
-        bert_model_name_or_path='bert-base-uncased'
+        bert_model_name_or_path='bert-base-uncased',
+        patterns=[],
     ):
         self.label_set = torch.load(os.path.join(model_path, "label_set.bin"))
         self.num_labels = len(self.label_set.label_list)
+        self.patterns = patterns
 
         # by default, we do non-overlapping segments of text
         # self.token_step_size = token_step_size
@@ -96,7 +102,10 @@ class Transformer(object):
         # initialize the model
         self.config = config_class.from_pretrained(model_path)
         self.tokenizer = tokenizer_class.from_pretrained(model_path)
-        self.model = model_class.from_pretrained(model_path)
+        model_param = {'pretrained_model_name_or_path': model_path}
+        if model_type == 'bert_stanfordner':
+            model_param['num_features'] = len(self.patterns)
+        self.model = model_class.from_pretrained(**model_param)
         
 
 
@@ -169,7 +178,7 @@ class Transformer(object):
         # in this case we have a length 1 example
         # we use the SHA-256 hash of the text as the globally unique identifier
         guid = sha256(text.encode()).hexdigest()
-        examples = [processors.InputExample(guid=guid, text=text, labels=None)]
+        examples = [processors.InputExample(guid=guid, text=text, labels=None, patterns=self.patterns)]
         features = tokenization.convert_examples_to_features(
             examples,
             self.label_set.label_to_id,
