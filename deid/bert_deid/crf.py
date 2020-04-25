@@ -298,23 +298,34 @@ class CRF(nn.Module):
 
         # shape: (batch_size,)
         seq_ends = mask.long().sum(dim=0) - 1
-        best_tags_list = []
+        # best_tags_list = []
+        tag_probs_list = []
 
         for idx in range(batch_size):
             # Find the tag which maximizes the score at the last timestep; this is our best tag
             # for the last timestep
-            _, best_last_tag = score[idx].max(dim=0)
-            best_tags = [best_last_tag.item()]
+            # _, best_last_tag = score[idx].max(dim=0)
+            # best_tags = [best_last_tag.item()]
+
+            last_tag_probs = score[idx]
+            tag_probs = [last_tag_probs.item()]
 
             # We trace back where the best last tag comes from, append that to our best tag
             # sequence, and trace it back again, and so on
             # for hist in reversed(history[:seq_ends[idx]]):
+            # for hist in reversed(history):
+            #     best_last_tag = hist[idx][best_tags[-1]]
+            #     best_tags.append(best_last_tag.item())
+            
             for hist in reversed(history):
-                best_last_tag = hist[idx][best_tags[-1]]
-                best_tags.append(best_last_tag.item())
+                last_tag_probs = hist[idx][tag_probs[-1]]
+                tag_probs.append(last_tag_probs.item())
 
-            # Reverse the order because we start from the last timestep
-            best_tags.reverse()
-            best_tags_list.append(best_tags)
+            # # Reverse the order because we start from the last timestep
+            # best_tags.reverse()
+            # best_tags_list.append(best_tags)
 
-        return best_tags_list
+            tag_probs.reverse()
+            tag_probs_list.append(tag_probs)
+
+        return tag_probs_list

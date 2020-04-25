@@ -2,7 +2,6 @@ from torch import nn
 import torch
 import numpy as np 
 from bert_deid.crf import CRF
-from bert_deid.bert_bilstm import BERTBiLSTM 
 from transformers import BertModel, BertPreTrainedModel
 
 class BERTBiLSTMCRF(BertPreTrainedModel):
@@ -28,9 +27,9 @@ class BERTBiLSTMCRF(BertPreTrainedModel):
             input_size=self.hidden_size*4 if method=='concat_last_four' else self.hidden_size,
             hidden_size=hidden_size, 
             batch_first=True)
-        self.crf = CRF(num_tags=self.num_labels)
         self.dropout = nn.Dropout(dropout)
         self.hidden2label = nn.Linear(config.hidden_size, self.num_labels)
+        self.crf = CRF(num_tags=self.num_labels, batch_first=True)
 
 
     def forward(self, input_ids, attention_mask=None, token_type_ids=None, labels=None):
@@ -65,20 +64,17 @@ class BERTBiLSTMCRF(BertPreTrainedModel):
         enc, _ = self.rnn(encoded_layers)
 
         last_encoder_layer = enc # (batch_size, seq_length, hidden_size)
-        batch_size, seq_len = last_encoder_layer.shape[:2]
         # mask all -100
         mask = (labels>=0).long()
-        # torchCRF library assume no special tokens [cls] [sep] at either front of end of sequence
-        last_encoder_layer = last_encoder_layer[:,1:-1,:]
         # update all -100 to 0 to avoid indicies out-of-bound in CRF 
-        labels = labels[:, 1:-1] * mask[:, 1:-1]
-        print(mask.shape)
-        print(mask[:, 1:-1].shape)
-        print(mask[:, 1:-1])
-        mask = mask[:, 1:-1].to(torch.uint8) #.byte()
+        labels = labels * mask
+        mask = mask.to(torch.uint8) #.byte()
 
         last_encoder_layer = self.dropout(last_encoder_layer)
         emissions = self.hidden2label(last_encoder_layer)
+
+        logits = torch.Tensor(self.crf.decode(emissions, mask=mask)).long() # (batch_size, seq_len, num_tags)
+        print ('logit', logits.shape)
 
         # if labels is not None:
         #     log_likelihood = self.crf(emissions=emissions, tags=labels, mask=mask)
@@ -89,15 +85,6 @@ class BERTBiLSTMCRF(BertPreTrainedModel):
         #     print('tag_seqs',tag_seqs)
         #     return -1*log_likelihood, tag_seqs
 
-        tag_seqs = torch.Tensor(self.crf.decode(emissions, mask=mask)).long()
-        print('\n\n\n')
-        print("emissions",emissions.shape)
-        print("tag_seqs",tag_seqs.shape)
-        print("tag_seqs.T",tag_seqs.T.shape)
-
-        logits = self.crf(emissions,tag_seqs.T)
-        print('logits.shape',logits.shape)
-        print('logits',logits)
         outputs = (logits,)
         print('outputs',outputs)
         if labels is not None:
