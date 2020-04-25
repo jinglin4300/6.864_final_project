@@ -16,11 +16,12 @@ _PATTERN_NAMES = [name for _, name, _ in pkgutil.iter_modules(
 
 _STANFORD_PATTERN_NAMES=["PERSON", "ORGANIZATION", "LOCATION"]
 
-def find_ner_location(pattern_name, text):
+def find_ner_location(pattern_name, pattern_label, text):
     
-    model_path = 'stanford-ner/classifiers/english.all.3class.distsim.crf.ser.gz'
-    jar_path = 'stanford-ner/stanford-ner.jar'
-    st = StanfordNERTagger(model_path, jar_path,encoding='utf-8')
+    path_to_stanfordner = '/home/jingglin/research/6.864_final_project/deid/bert_deid/stanford-ner/'
+    model_path = path_to_stanfordner + 'classifiers/english.all.3class.distsim.crf.ser.gz'
+    jar_path = path_to_stanfordner + 'stanford-ner.jar'
+    st = StanfordNERTagger(model_path, jar_path, encoding='utf-8')
     
     tokenized_text = word_tokenize(text)
     classified_text = st.tag(tokenized_text)
@@ -34,7 +35,7 @@ def find_ner_location(pattern_name, text):
     for i in range(len(text)):
         word_length = len(classified_text_interest[word_index][0])
         if text[i:i+word_length] == classified_text_interest[word_index][0]:
-            ner_loc[i:i+word_length] = [1]*word_length
+            ner_loc[i:i+word_length] = [pattern_label]*word_length
             word_index +=1
             if word_index == len(classified_text_interest):
                 break
@@ -49,7 +50,7 @@ def find_phi_location(pattern_name, pattern_label, text, stanfordNER = False):
         pattern_name = pattern_name.upper()
         if pattern_name not in _STANFORD_PATTERN_NAMES:
             raise ValueError("Invalid pattern argument for stanford NER")
-        return find_ner_location(pattern_name,text)
+        return find_ner_location(pattern_name, pattern_label, text)
     if pattern_name.lower() not in _PATTERN_NAMES:
         raise ValueError("Invalid pattern argument")
 

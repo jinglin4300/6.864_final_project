@@ -212,10 +212,12 @@ class Transformer(object):
         all_label_ids = torch.tensor(
             [f.label_ids for f in features], dtype=torch.long
         )
-
+        all_extra_features = torch.tensor(
+            [f.extra_feature for f in features], dtype=torch.long
+        )
 
         eval_dataset = TensorDataset(
-            all_input_ids, all_input_mask, all_segment_ids, all_label_ids
+            all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_extra_features
         )
         eval_sampler = SequentialSampler(eval_dataset)
         eval_dataloader = DataLoader(
@@ -236,6 +238,8 @@ class Transformer(object):
                     'token_type_ids': batch[2],
                     "labels": batch[3]
                 }
+                if self.model_type == 'bert_stanfordner':
+                    inputs['extra_features'] = batch[4]
 
                 outputs = self.model(**inputs)
                 _, batch_logits = outputs[:2]

@@ -373,7 +373,8 @@ def convert_examples_to_features(
                     label_ids=label_ids,
                     input_offsets=offsets,
                     input_lengths=lengths,
-                    input_subwords=token_sw
+                    input_subwords=token_sw, 
+                    extra_feature=extra_features,
                 )
             )
             n_obs += 1

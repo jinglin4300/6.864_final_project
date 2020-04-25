@@ -507,6 +507,9 @@ def train(args, train_dataset, model, tokenizer, processor, pad_token_label_id):
                 "token_type_ids": batch[2],
                 "labels": batch[3]
             }
+            if args.model_type == "bert_stanfordner":
+                inputs["extra_features"] = batch[4]
+
 
             outputs = model(**inputs)
             loss = outputs[
@@ -662,6 +665,8 @@ def evaluate(
                 "token_type_ids": batch[2],
                 "labels": batch[3]
             }
+            if args.model_type == "bert_stanfordner":
+                inputs["extra_features"] = batch[4]
 
 
             outputs = model(**inputs)
@@ -786,9 +791,12 @@ def load_and_cache_examples(
     all_label_ids = torch.tensor(
         [f.label_ids for f in features], dtype=torch.long
     )
+    all_extra_features = torch.tensor(
+        [f.extra_feature for f in features], dtype=torch.long
+    )
 
     dataset = TensorDataset(
-        all_input_ids, all_input_mask, all_segment_ids, all_label_ids
+        all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_extra_features
     )
     return dataset
 
