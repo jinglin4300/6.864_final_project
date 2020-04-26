@@ -37,6 +37,7 @@ from transformers import (
 from bert_deid import tokenization, processors
 from bert_deid.label import LabelCollection, LABEL_SET, LABEL_MEMBERSHIP
 from bert_deid.bert_bilstm import BERTBiLSTM 
+from bert_deid.bert_bilstm_crf import BERTBiLSTMCRF
 from bert_deid.bilstm_feature import BiLSTM_FEATURE
 from bert_deid.bert_stanfordner import BERTStanfordNER
 
@@ -52,7 +53,7 @@ logger = logging.getLogger(__name__)
 
 MODEL_CLASSES = {
     "bert": (BertConfig, BertForTokenClassification, BertTokenizer),
-    "bert_bilstm_crf": (BertConfig, BertModel, BertTokenizer),
+    "bert_bilstm_crf": (BertConfig, BERTBiLSTMCRF, BertTokenizer),
     "bert_bilstm": (BertConfig, BERTBiLSTM, BertTokenizer), 
     "bilstm_feature": (BertConfig, BiLSTM_FEATURE, BertTokenizer),
     "bert_stanfordner": (BertConfig, BERTStanfordNER, BertTokenizer),
@@ -304,7 +305,16 @@ def argparser():
 
     # for feature-based bert
     parser.add_argument(
+        '--method',
+        type=str,
+        default='concat_last_four',
+        help=(
+            'Feature-based BERT method'
+        )
+    )
+    parser.add_argument(
         '--num_lstm_layers',
+        type=int,
         default=2,
         help=(
             'Feature-based BERT, number of LSTM layers on top layers'
@@ -312,9 +322,18 @@ def argparser():
     )
     parser.add_argument(
         '--lstm_bidirectional',
+        type=bool,
         default=True,
         help=(
             'Feature-based BERT, LSTM is bidirectional or not'
+        )
+    )
+    parser.add_argument(
+        '--crf_dropout',
+        type=float,
+        default=0.1,
+        help=(
+            'Dropout rate for CRF layer'
         )
     )
     parser.add_argument(
@@ -871,8 +890,6 @@ def main():
     if 'ALL' in args.patterns:
         args.patterns = ["ORGANIZATION", "PERSON", "LOCATION"]
 
-    print ('patterns', args.patterns)
-
     if args.model_type == 'bert_stanfordner':
         if len(args.patterns) == 0:
             raise ValueError("Add stanfordNER pattern to perform bert-feature ensemble")
@@ -910,6 +927,16 @@ def main():
 
     if args.model_type == 'bert_stanfordner':
         model_params['num_features'] = len(args.patterns)
+
+    elif args.model_type == 'bert_bilstm_crf':
+        model_params['method'] = args.method
+        model_params['num_lstm_layers'] = args.num_lstm_layers
+        model_params['lstm_bidirectional'] = args.lstm_bidirectional
+        model_params['crf_dropout'] = args.crf_dropout
+    elif model_type == 'bert_bilstm' or model_type == 'bilstm_feature':
+        model_params['method'] = args.method
+        model_params['num_lstm_layers'] = args.num_lstm_layers
+        model_params['lstm_bidirectional']=args.lstm_bidirectional
 
     model = model_class.from_pretrained(**model_params)
 

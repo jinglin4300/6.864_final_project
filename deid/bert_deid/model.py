@@ -31,10 +31,11 @@ from bert_deid.label import LABEL_SET, LabelCollection, LABEL_MEMBERSHIP
 from bert_deid.bert_bilstm import BERTBiLSTM
 from bert_deid.bilstm_feature import BiLSTM_FEATURE
 from bert_deid.bert_stanfordner import BERTStanfordNER
+from bert_deid.bert_bilstm_crf import BERTBiLSTMCRF
 
 MODEL_CLASSES = {
     "bert": (BertConfig, BertForTokenClassification, BertTokenizer),
-    "bert_bilstm_crf": (BertConfig, BertModel, BertTokenizer),
+    "bert_bilstm_crf": (BertConfig, BERTBiLSTMCRF, BertTokenizer),
     "bert_bilstm": (BertConfig, BERTBiLSTM, BertTokenizer), 
     "bilstm_feature": (BertConfig, BiLSTM_FEATURE, BertTokenizer),
     "bert_stanfordner": (BertConfig, BERTStanfordNER, BertTokenizer),
@@ -75,12 +76,19 @@ class Transformer(object):
         # sequence_length=100,
         max_seq_length=128,
         device='cpu', 
-        bert_model_name_or_path='bert-base-uncased',
         patterns=[],
+        method='concat_last_four',
+        num_lstm_layers=2,
+        lstm_bidirectional=True,
+        crf_dropout=0.1,
     ):
         self.label_set = torch.load(os.path.join(model_path, "label_set.bin"))
         self.num_labels = len(self.label_set.label_list)
         self.patterns = patterns
+        self.method=method
+        self.num_lstm_layers=num_lstm_layers
+        self.lstm_bidirectional=lstm_bidirectional
+        self.crf_dropout=crf_dropout
 
         # by default, we do non-overlapping segments of text
         # self.token_step_size = token_step_size
@@ -102,10 +110,20 @@ class Transformer(object):
         # initialize the model
         self.config = config_class.from_pretrained(model_path)
         self.tokenizer = tokenizer_class.from_pretrained(model_path)
-        model_param = {'pretrained_model_name_or_path': model_path}
+        model_params = {'pretrained_model_name_or_path': model_path}
         if model_type == 'bert_stanfordner':
-            model_param['num_features'] = len(self.patterns)
-        self.model = model_class.from_pretrained(**model_param)
+            model_params['num_features'] = len(self.patterns)
+        elif model_type == 'bert_bilstm_crf':
+            model_params['method'] = self.method
+            model_params['num_lstm_layers'] = self.num_lstm_layers
+            model_params['lstm_bidirectional'] = self.lstm_bidirectional
+            model_params['crf_dropout'] = self.crf_dropout
+        elif model_type == 'bert_bilstm' or model_type == 'bilstm_feature':
+            model_params['method'] = self.method
+            model_params['num_lstm_layers'] = self.num_lstm_layers
+            model_params['lstm_bidirectional']=self.lstm_bidirectional
+
+        self.model = model_class.from_pretrained(**model_params)
         
 
 
@@ -250,6 +268,11 @@ class Transformer(object):
             # N_BATCHES x N_SEQ_LENGTH x N_LABELS
             batch_logits = batch_logits.detach().cpu().numpy()
             batch_size, seq_len = batch_logits.shape[:2]
+            if self.model_type == 'bert_bilstm_crf':
+                # CRF only gives a label prediction 
+                # broadcast to (,,num_label) to match to BERT output
+                batch_logits = np.expand_dims(batch_logits, axis=2)
+                batch_logits = batch_logits.astype(int)
             if logits is None:
                 logits = batch_logits
                 out_label_ids = inputs["labels"].detach().cpu().numpy()

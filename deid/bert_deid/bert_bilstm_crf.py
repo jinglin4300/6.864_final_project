@@ -5,7 +5,7 @@ from bert_deid.crf import CRF
 from transformers import BertModel, BertPreTrainedModel
 
 class BERTBiLSTMCRF(BertPreTrainedModel):
-    def __init__(self, config, method='concat_last_four', num_lstm_layers=2, lstm_bidirectional=True,dropout=0.1):
+    def __init__(self, config, method='concat_last_four', num_lstm_layers=2, lstm_bidirectional=True,crf_dropout=0.1):
         super().__init__(config)
         method = method.lower()
         if method not in self._get_valid_methods():
@@ -27,7 +27,7 @@ class BERTBiLSTMCRF(BertPreTrainedModel):
             input_size=self.hidden_size*4 if method=='concat_last_four' else self.hidden_size,
             hidden_size=hidden_size, 
             batch_first=True)
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(crf_dropout)
         self.hidden2label = nn.Linear(config.hidden_size, self.num_labels)
         self.crf = CRF(num_tags=self.num_labels, batch_first=True)
 
@@ -72,37 +72,12 @@ class BERTBiLSTMCRF(BertPreTrainedModel):
 
         last_encoder_layer = self.dropout(last_encoder_layer)
         emissions = self.hidden2label(last_encoder_layer)
+        best_tag_seqs = torch.Tensor(self.crf.decode(emissions, mask=mask)).long() # (batch_size, seq_len)
+        outputs = (best_tag_seqs,)
 
-        logits = torch.Tensor(self.crf.decode(emissions, mask=mask)).long() # (batch_size, seq_len, num_tags)
-        print ('logit', logits.shape)
-
-        # if labels is not None:
-        #     log_likelihood = self.crf(emissions=emissions, tags=labels, mask=mask)
-        #     tag_seqs = torch.Tensor(self.crf.decode(emissions, mask=mask)).long()# (batch_size, seq_len)
-        #     print('log_likelihood.shape',log_likelihood.shape)
-        #     print('tag_seqs.shape',tag_seqs.shape)
-        #     print('log_likelihood',log_likelihood)
-        #     print('tag_seqs',tag_seqs)
-        #     return -1*log_likelihood, tag_seqs
-
-        outputs = (logits,)
-        print('outputs',outputs)
         if labels is not None:
-            loss_fn = nn.CrossEntropyLoss()
-            # only keep active parts of the loss
-            attention_mask = None
-            if attention_mask is not None:
-                active_loss = attention_mask.view(-1) == 1
-                active_logits = logits.view(-1, self.num_labels)
-                active_labels = torch.where(
-                    active_loss, labels.view(-1), torch.tensor(loss_fn.ignore_index).type_as(labels)
-                )
-                loss = loss_fn(active_logits, active_labels)
-
-            else:
-                loss = loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
-            
-            outputs = (loss,) + outputs
+            log_likelihood = self.crf(emissions = emissions, tags=labels, mask = mask)
+            outputs = (-1*log_likelihood,) + outputs
         return outputs
 
     def _get_valid_methods(self):
