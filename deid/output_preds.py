@@ -38,12 +38,6 @@ if __name__ == '__main__':
         "--model_type", default='bert', type=str, help="Type of model"
     )
     parser.add_argument(
-        '--model_name_or_path',
-        default='bert-base-uncased',
-        type=str,
-        help="Pretrained bert model used in training. Only require when model_type is 'bert_crf'."
-    )
-    parser.add_argument(
         "--output",
         default='preds.pkl',
         type=str,
@@ -64,6 +58,40 @@ if __name__ == '__main__':
         "--label_transform",
         choices=list(LABEL_MEMBERSHIP.keys()),
         help="Label transformation to apply."
+    )
+    
+    # for feature-based bert
+    parser.add_argument(
+        '--method',
+        type=str,
+        default='concat_last_four',
+        help=(
+            'Feature-based BERT method'
+        )
+    )
+    parser.add_argument(
+        '--num_lstm_layers',
+        type=int,
+        default=2,
+        help=(
+            'Feature-based BERT, number of LSTM layers on top layers'
+        )
+    )
+    parser.add_argument(
+        '--lstm_bidirectional',
+        type=bool,
+        default=True,
+        help=(
+            'Feature-based BERT, LSTM is bidirectional or not'
+        )
+    )
+    parser.add_argument(
+        '--crf_dropout',
+        type=float,
+        default=0.1,
+        help=(
+            'Dropout rate for CRF layer'
+        )
     )
     parser.add_argument(
         "--feature",
@@ -92,8 +120,9 @@ if __name__ == '__main__':
 
     # load in a trained model
     transformer = Transformer(
-        args.model_type, args.model_dir, max_seq_length=128, device='cpu', bert_model_name_or_path=args.model_name_or_path,
-        patterns=args.patterns
+        args.model_type, args.model_dir, max_seq_length=128, device='cpu',
+        patterns=args.patterns, method=args.method, num_lstm_layers=args.num_lstm_layers, 
+        lstm_bidirectional=args.lstm_bidirectional, crf_dropout=args.crf_dropout
     )
 
     label_to_id = transformer.label_set.label_to_id
@@ -141,9 +170,9 @@ if __name__ == '__main__':
                 for i in range(ex_preds.shape[0]):
                     start, stop = ex_offsets[i], ex_offsets[i] + ex_lengths[i]
                     entity = text[start:stop]
-                    if args.model_type == 'bert_crf':
+                    if args.model_type == 'bert_bilstm_crf':
                         assert(len(ex_preds[i,:]) == 1)
-                        # BertCRF gives one predicted tag id: (batch_size, max_seq_len, 1)
+                        # CRF gives one predicted tag id: (batch_size, max_seq_len, 1)
                         entity_type = transformer.label_set.id_to_label[int(ex_preds[i,:][0])]
                     else:
                         entity_type = transformer.label_set.id_to_label[np.argmax(
