@@ -933,7 +933,7 @@ def main():
         model_params['num_lstm_layers'] = args.num_lstm_layers
         model_params['lstm_bidirectional'] = args.lstm_bidirectional
         model_params['crf_dropout'] = args.crf_dropout
-    elif model_type == 'bert_bilstm' or model_type == 'bilstm_feature':
+    elif args.model_type == 'bert_bilstm' or args.model_type == 'bilstm_feature':
         model_params['method'] = args.method
         model_params['num_lstm_layers'] = args.num_lstm_layers
         model_params['lstm_bidirectional']=args.lstm_bidirectional

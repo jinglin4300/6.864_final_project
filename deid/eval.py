@@ -276,6 +276,7 @@ def main():
     # get the label to ID map from the label set
     label2id_map = label_set.label_to_id
     id2label_map = {label2id_map[key]: key for key in label2id_map}
+    print ('label', label2id_map, id2label_map)
     label_list = list(label_set.label_list)
     label_list.remove('O')
 
@@ -408,7 +409,7 @@ def main():
         if args.bio:
             df = merge_BIO_pred(df, args.binary_eval, args.expand_eval, text)
             if args.binary_eval:
-                gs['entity_type'] = 'phi'
+                gs['entity_type'] = 'PHI'
             # ignore punctuation punshiment at front/end
             true = utils.ignore_partials(utils.get_entities(gs))
             pred = utils.ignore_partials(utils.get_entities(df))
