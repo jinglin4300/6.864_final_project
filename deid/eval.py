@@ -238,6 +238,9 @@ def main():
     parser.add_argument(
         "--csv_path",type=str,default=None,help="CSV file to output errors for labelling"
     )
+    parser.add_argument(
+        "--false_neg_path",type=str,default=None,help="CSV file to output errors for labelling"
+    )
 
     args = parser.parse_args()
 
@@ -249,6 +252,13 @@ def main():
         csv_path = Path(args.csv_path)
         if not os.path.exists(csv_path.parents[0]):
             os.makedirs(csv_path.parents[0])
+    if args.false_neg_path is not None:
+        false_neg_path = Path(args.false_neg_path)
+        if not false_neg_path.exists():
+            false_neg_path.mkdir(parents=True)
+        output_header = ['document_id','fn']
+    else:
+        false_neg_path = None
 
     log_path = None
     if args.log is not None:
@@ -276,7 +286,6 @@ def main():
     # get the label to ID map from the label set
     label2id_map = label_set.label_to_id
     id2label_map = {label2id_map[key]: key for key in label2id_map}
-    print ('label', label2id_map, id2label_map)
     label_list = list(label_set.label_list)
     label_list.remove('O')
 
@@ -320,6 +329,8 @@ def main():
         # load the text
         with open(input_path / f'{fn}{input_ext}', 'r') as fp:
             text = ''.join(fp.readlines())
+
+        curr_fn = pd.DataFrame(columns=['document_id','fn'])
 
         # load output of bert-deid
         fn_pred = pred_path / f'{fn}{pred_ext}'
@@ -403,13 +414,20 @@ def main():
         curr_performance['n_token_fp'] = len(fp_list)
         curr_performance['n_token_fn'] = len(fn_list)
 
+        for each in fn_list:
+            curr_fn = curr_fn.append({
+                    'document_id':fn, 'fn': each}, 
+                    ignore_index=True)
+        if false_neg_path is not None:
+            curr_fn.to_csv(false_neg_path / f'{fn}.csv', index=False)
+
 
         fp_list_entity, fn_list_entity = None, None
         # report performance entity-wise (only when label is transformed)
         if args.bio:
             df = merge_BIO_pred(df, args.binary_eval, args.expand_eval, text)
             if args.binary_eval:
-                gs['entity_type'] = 'PHI'
+                gs['entity_type'] = 'phi'
             # ignore punctuation punshiment at front/end
             true = utils.ignore_partials(utils.get_entities(gs))
             pred = utils.ignore_partials(utils.get_entities(df))

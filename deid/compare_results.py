@@ -12,6 +12,7 @@ import re
 
 logger = logging.getLogger()
 logger.setLevel(logging.WARNING)
+from collections import OrderedDict
 
 import bert_deid.utils as utils
 from bert_deid import processors
@@ -95,6 +96,9 @@ if __name__ == '__main__':
         action='store_true',
         help="Whether to transform labels to use inside-outside-beginning tags"
     )
+    parser.add_argument(
+        "--log",type=str,default=None,help="text file to output false positive/negative to"
+    )
     args = parser.parse_args()
 
     ref_path = Path(args.ref_path)
@@ -114,7 +118,15 @@ if __name__ == '__main__':
         if not os.path.exists(output_csv.parents[0]):
             os.makedirs(output_csv.parents[0])
 
+    log_path = None
+    if args.log is not None:
+        log_path = Path(args.log)
+        if not os.path.exists(log_path.parents[0]):
+            os.makedirs(log_path.parents[0])
 
+        log_text = OrderedDict(
+            [["False Negatives Token", '']]
+        )
 
     # read files from folder
     if os.path.exists(args.text_path):
@@ -195,6 +207,7 @@ if __name__ == '__main__':
         n_tokens = 0
         n_tokens_phi = 0
         n_tokens_fp, n_tokens_fn, n_tokens_tp = 0, 0, 0
+        fp_list, fn_list = [], []
         for token, start, end in utils.pattern_spans(text, pattern):
             n_tokens += 1
             token_tar = False
@@ -219,14 +232,35 @@ if __name__ == '__main__':
                     'document_id':fn, 'start': start, 
                     'stop':end, 'token':token,'token_type':id2label[token_tar]}, 
                     ignore_index=True)
+                fn_list.append((token, id2label[token_tar], start, end))
 
             elif token_tar == 0 and token_pred:
                 n_tokens_fp += 1
+                fp_list.append((token, 'PHI', start, end))
             
             elif token_tar != 0 and token_pred:
                 n_tokens_tp += 1
-                
-                
+        assert (len(fp_list) == n_tokens_fp)
+        assert (len(fn_list) == n_tokens_fn)
+
+        if (log_path is not None) and (n_tokens_fn > 0):
+
+            for key in log_text.keys():
+                if key == 'False Negatives Token': 
+                    false_list = fn_list
+                else: 
+                    false_list = []
+                # false list: (token, label, start, end)
+                sorted_false_list = sorted(false_list, key=lambda x: x[2])
+                for (token, label, start, stop) in sorted_false_list:
+                    log_text[key] += f'{fn},'
+                    log_text[key] += text[max(start - 50, 0):start].replace('\n', ' ')
+                    log_text[key] += "**" + token.replace('\n', ' ') + "**"
+                    log_text[key] += text[stop:min(stop+50, len(text))].replace("\n", " ")
+                    log_text[key] += "\n"
+                    if (',' in token) or ("\n" in token) or ('"' in token):
+                        token = '"' + token.replace('"', '""') + '"'
+                    log_text[key] += f'{fn},,{start},{stop},{token},{label},\n'
         if output_folder is not None:
             curr_fn.to_csv(output_folder / f'{fn}.csv', index=False)
             
@@ -274,3 +308,9 @@ if __name__ == '__main__':
     
     if output_csv is not None:
         df_all.to_csv(output_csv, index=False)
+
+    if log_path is not None:
+        # overwrite the log file
+        with open(log_path, 'w') as fp:
+            for k, text in log_text.items():
+                fp.write(f'=== {k} ===\n{text}\n\n')

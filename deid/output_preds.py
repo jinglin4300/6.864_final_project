@@ -170,7 +170,7 @@ if __name__ == '__main__':
                 for i in range(ex_preds.shape[0]):
                     start, stop = ex_offsets[i], ex_offsets[i] + ex_lengths[i]
                     entity = text[start:stop]
-                    if args.model_type == 'bert_bilstm_crf':
+                    if args.model_type == 'bert_bilstm_crf' or args.model_type == 'bert_crf' or args.model_type == 'bilstm_feature_crf':
                         assert(len(ex_preds[i,:]) == 1)
                         # CRF gives one predicted tag id: (batch_size, max_seq_len, 1)
                         entity_type = transformer.label_set.id_to_label[int(ex_preds[i,:][0])]

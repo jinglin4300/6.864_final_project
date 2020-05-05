@@ -32,12 +32,16 @@ from bert_deid.bert_bilstm import BERTBiLSTM
 from bert_deid.bilstm_feature import BiLSTM_FEATURE
 from bert_deid.bert_stanfordner import BERTStanfordNER
 from bert_deid.bert_bilstm_crf import BERTBiLSTMCRF
+from bert_deid.bert_crf import BERTCRF
+from bert_deid.bilstm_feature_crf import BiLSTM_FEATURE_CRF
 
 MODEL_CLASSES = {
     "bert": (BertConfig, BertForTokenClassification, BertTokenizer),
+    "bert_crf": (BertConfig, BERTCRF, BertTokenizer),
     "bert_bilstm_crf": (BertConfig, BERTBiLSTMCRF, BertTokenizer),
     "bert_bilstm": (BertConfig, BERTBiLSTM, BertTokenizer), 
     "bilstm_feature": (BertConfig, BiLSTM_FEATURE, BertTokenizer),
+    "bilstm_feature_crf": (BertConfig, BiLSTM_FEATURE_CRF, BertTokenizer), 
     "bert_stanfordner": (BertConfig, BERTStanfordNER, BertTokenizer),
 }
 
@@ -113,7 +117,7 @@ class Transformer(object):
         model_params = {'pretrained_model_name_or_path': model_path}
         if model_type == 'bert_stanfordner':
             model_params['num_features'] = len(self.patterns)
-        elif model_type == 'bert_bilstm_crf':
+        elif model_type == 'bert_bilstm_crf' or model_type == 'bilstm_feature_crf':
             model_params['method'] = self.method
             model_params['num_lstm_layers'] = self.num_lstm_layers
             model_params['lstm_bidirectional'] = self.lstm_bidirectional
@@ -122,6 +126,8 @@ class Transformer(object):
             model_params['method'] = self.method
             model_params['num_lstm_layers'] = self.num_lstm_layers
             model_params['lstm_bidirectional']=self.lstm_bidirectional
+        elif model_type == 'bert_crf':
+            model_params['crf_dropout'] = self.crf_dropout
 
         self.model = model_class.from_pretrained(**model_params)
         
@@ -268,7 +274,7 @@ class Transformer(object):
             # N_BATCHES x N_SEQ_LENGTH x N_LABELS
             batch_logits = batch_logits.detach().cpu().numpy()
             batch_size, seq_len = batch_logits.shape[:2]
-            if self.model_type == 'bert_bilstm_crf':
+            if self.model_type == 'bert_bilstm_crf' or self.model_type == 'bert_crf' or self.model_type == 'bilstm_feature_crf':
                 # CRF only gives a label prediction 
                 # broadcast to (,,num_label) to match to BERT output
                 batch_logits = np.expand_dims(batch_logits, axis=2)

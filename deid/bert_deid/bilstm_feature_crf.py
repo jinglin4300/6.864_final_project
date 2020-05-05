@@ -1,9 +1,11 @@
 import torch
 import torch.nn as nn
 from transformers import BertModel, BertPreTrainedModel
+import numpy as np 
+from bert_deid.crf import CRF
 
-class BiLSTM_FEATURE(BertPreTrainedModel):
-    def __init__(self, config, method='concat_last_four', num_lstm_layers=1, lstm_bidirectional=True):
+class BiLSTM_FEATURE_CRF(BertPreTrainedModel):
+    def __init__(self, config, method='concat_last_four', num_lstm_layers=2, lstm_bidirectional=True,crf_dropout=0.1):
         super().__init__(config)
         method = method.lower()
         if method not in self._get_valid_methods():
@@ -30,11 +32,9 @@ class BiLSTM_FEATURE(BertPreTrainedModel):
             self.concat_layer = nn.Linear(5*self.hidden_size, self.hidden_size)
         else:
             self.concat_layer = nn.Linear(2*self.hidden_size, self.hidden_size)
-        self.classifier = nn.Linear(self.hidden_size, self.num_labels)
-        # if self.method == "concat_last_four":
-        #     self.classifier = nn.Linear(5*self.hidden_size, self.num_labels)
-        # else:
-        #     self.classifier = nn.Linear(2*self.hidden_size, self.num_labels)
+        self.dropout = nn.Dropout(crf_dropout)
+        self.hidden2label = nn.Linear(self.hidden_size, self.num_labels)
+        self.crf = CRF(num_tags=self.num_labels, batch_first=True)
 
 
     def forward(self, input_ids, attention_mask=None, token_type_ids=None, labels=None):
@@ -70,26 +70,22 @@ class BiLSTM_FEATURE(BertPreTrainedModel):
 
         enc, _ = self.rnn(embedding_output)
         enc = self.concat_layer(torch.cat([enc, encoded_layers], dim=-1))
-        logits = self.classifier(enc)
-        # logits = self.classifier(torch.cat([enc, encoded_layers], dim=-1))
 
-        outputs = (logits,)
+        last_encoder_layer = enc # (batch_size, seq_length, hidden_size)
+        # mask all -100
+        mask = (labels>=0).long()
+        # update all -100 to 0 to avoid indicies out-of-bound in CRF 
+        labels = labels * mask
+        mask = mask.to(torch.uint8) #.byte()
+
+        last_encoder_layer = self.dropout(last_encoder_layer)
+        emissions = self.hidden2label(last_encoder_layer)
+        best_tag_seqs = torch.Tensor(self.crf.decode(emissions, mask=mask)).long() # (batch_size, seq_len)
+        outputs = (best_tag_seqs,)
 
         if labels is not None:
-            loss_fn = nn.CrossEntropyLoss()
-            # only keep active parts of the loss
-            if attention_mask is not None:
-                active_loss = attention_mask.view(-1) == 1
-                active_logits = logits.view(-1, self.num_labels)
-                active_labels = torch.where(
-                    active_loss, labels.view(-1), torch.tensor(loss_fn.ignore_index).type_as(labels)
-                )
-                loss = loss_fn(active_logits, active_labels)
-
-            else:
-                loss = loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
-            
-            outputs = (loss,) + outputs
+            log_likelihood = self.crf(emissions = emissions, tags=labels, mask = mask)
+            outputs = (-1*log_likelihood,) + outputs
         return outputs
 
     def _get_valid_methods(self):

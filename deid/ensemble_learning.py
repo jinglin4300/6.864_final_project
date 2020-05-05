@@ -19,6 +19,16 @@ from sklearn import svm
 import pickle
 import csv
 
+import time
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import seaborn as sns
+from matplotlib_venn import venn2, venn2_circles, venn2_unweighted
+from matplotlib_venn import venn3, venn3_circles
+from sklearn import metrics
+
 
 logger = logging.getLogger()
 logger.setLevel(logging.WARNING)
@@ -317,6 +327,93 @@ def get_XYs(pred_dirs, data_path, ref_path):
 
     return all_Xs, all_Ys, file_start, file_length, file_id, phi_locs
 
+def view_data(X, Y):
+    pca = TSNE(n_components=2, random_state=42)
+    pca_result = pca.fit_transform(X)
+    # print ('Explained variation per principal component: {}'.format(pca.explained_variance_ratio))
+    print ('pca', pca_result.shape)
+
+    new_cord = np.vstack((pca_result.T, Y)).T
+    print ('new_cord', new_cord.shape)
+    df = pd.DataFrame(data=new_cord, columns=("PCA-One", "PCA-Two", "Label"))
+    print ('dataframe', df.head())
+    plt.figure(figsize=(16,10))
+    sns.scatterplot(
+        x="PCA-One", y="PCA-Two",
+        hue="Label",
+        palette=sns.color_palette("hls", 2),
+        data=df,
+        legend="full",
+        alpha=0.3,
+    )
+    plt.savefig('tsne_plot.jpg')
+    plt.show()
+
+def get_df_dict(anno_path, data_path, ext):
+    files = os.listdir(data_path / 'txt')
+    files = [f for f in files if f.endswith('.txt')]
+
+    all_df = {}
+    for fn in tqdm(files, total=len(files)):
+        document_id = fn[:-len('.txt')]
+        # load text file
+        with open(data_path / 'txt' / fn, 'r') as fp:
+            text = ''.join(fp.readlines())
+
+        df = anno_path / f'{document_id}.{ext}'
+        df = pd.read_csv(
+            df, header=0,delimiter=",",
+            dtype={
+            'entity':str, 'entity_type':str
+        })
+
+        df = process_annotation(df, document_id, text)
+        all_df[document_id] = df
+    
+    return all_df
+
+def compare(pred_dirs, data_path, ref_path):
+    files = os.listdir(data_path / 'txt')
+    files = [f[:-len('.txt')] for f in files if f.endswith('.txt')]
+    all_gs = get_df_dict(ref_path, data_path, 'gs')
+    tps = {}
+    num_tps = {}
+    for pred_path in pred_dirs:
+        df = get_df_dict(pred_path, data_path, 'pred')
+        tps[pred_path] = []
+        num_tps[pred_path] = 0
+        for document_id in files:
+            gs_fn = all_gs[document_id]
+            gs_fn = gs_fn[gs_fn['document_id'] == document_id]
+            df_fn = df[document_id]
+            df_fn = df_fn[df_fn['document_id'] == document_id]
+            phi = set([(document_id, start, stop) for start, stop in zip(gs_fn['start'].values, gs_fn['stop'].values)])
+            pred = set([(document_id, start, stop) for start, stop in zip(df_fn['start'].values, df_fn['stop'].values)])
+            true_postives = phi.intersection(pred)
+            num_tp = len(true_postives)
+            tps[pred_path].append(true_postives)
+            num_tps[pred_path] += num_tp
+    return tps, num_tps
+
+def true_phi(pred_dirs, data_path, ref_path):
+    files = os.listdir(data_path / 'txt')
+    files = [f[:-len('.txt')] for f in files if f.endswith('.txt')]
+    all_gs = get_df_dict(ref_path, data_path, 'gs')
+    true = []
+    for document_id in files:
+        gs_fn = all_gs[document_id]
+        gs_fn = gs_fn[gs_fn['document_id'] == document_id]
+        phi = set([(document_id, start, stop) for start, stop in zip(gs_fn['start'].values, gs_fn['stop'].values)])
+        true.extend(phi)
+    return true
+
+def plot_venn(pred_dirs, data_path, ref_path):
+    tps, num_tps = compare(pred_dirs, data_path, ref_path)
+    true = true_phi(pred_dirs, data_path, ref_path)
+    # pickle.dump(tps, open('tps.p', 'wb'))
+    # pickle.dump(num_tps, open('num_tps', 'wb'))
+    pickle.dump(true, open('true.p', 'wb'))
+
 
 def main():
     parser = argparser()
@@ -325,19 +422,22 @@ def main():
     pred_dirs = [Path(pred_dir) for pred_dir in args.pred_dir]
     data_path = Path(args.data_dir)
     ref_path = Path(args.ref_path)
+    # plot_venn(pred_dirs, data_path, ref_path)
     Xs, Ys, file_start, file_length, file_id, phi_locs = get_XYs(pred_dirs, data_path, ref_path)
+    # view_data(Xs, Ys)
+    all_pred_Ys = []
 
     if args.do_train and not args.do_test:
 
         # hyper-params to tune
-        svc = svm.SVC(C=1, kernel='linear')
-        k_fold = KFold(n_splits=10, shuffle=True, random_state=42)
-        Cs = [0.001, 0.01, 0.1, 0.3, 1, 3, 10, 100]
-        gammas = [0.001, 0.01, 0.1, 0.3, 1, 3, 10, 100]
-        
+        svc = svm.SVC(random_state=42, kernel='linear', class_weight='balanced')
+        k_fold = KFold(n_splits=5, shuffle=True, random_state=42)
+        Cs = [0.001, 0.01, 0.1, 1, 10, 100]
+        gammas = [0.001, 0.01, 0.1, 1, 10, 100, 'auto', 'scale']
+
         logger.info("*********** Hyper-parameter Search*********")
         param_grid = {'C': Cs, 'gamma': gammas}
-        grid_search = GridSearchCV(svc, param_grid, cv=k_fold, scoring='f1')
+        grid_search = GridSearchCV(svc, param_grid, cv=k_fold, scoring='f1', verbose=2)
         grid_search.fit(Xs, Ys)
         best_params = grid_search.best_params_
         logger.info('*********best params: {} *********'.format(best_params))
@@ -364,6 +464,7 @@ def main():
             file_Xs = Xs[file_s:file_s+file_e]
             file_Ys = Ys[file_s:file_s+file_e]
             pred_Ys = best_estimator.predict(file_Xs)
+            all_pred_Ys.extend(pred_Ys)
             
             with open(output_folder / f'{document_id}.pred', 'w') as fp:
                 csvwriter = csv.writer(fp)
@@ -374,6 +475,9 @@ def main():
                         document_id, '', start, stop, entity, 'PHI', ''
                     ]
                     csvwriter.writerow(row)
+
+        print ('accuracy', metrics.accuracy_score(Ys, all_pred_Ys))
+        print ('classification report', metrics.classification_report(Ys, all_pred_Ys))
 
 if __name__ == "__main__": 
     main()

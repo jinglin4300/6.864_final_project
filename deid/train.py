@@ -40,6 +40,8 @@ from bert_deid.bert_bilstm import BERTBiLSTM
 from bert_deid.bert_bilstm_crf import BERTBiLSTMCRF
 from bert_deid.bilstm_feature import BiLSTM_FEATURE
 from bert_deid.bert_stanfordner import BERTStanfordNER
+from bert_deid.bert_crf import BERTCRF
+from bert_deid.bilstm_feature_crf import BiLSTM_FEATURE_CRF
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -53,9 +55,11 @@ logger = logging.getLogger(__name__)
 
 MODEL_CLASSES = {
     "bert": (BertConfig, BertForTokenClassification, BertTokenizer),
+    "bert_crf": (BertConfig, BERTCRF, BertTokenizer),
     "bert_bilstm_crf": (BertConfig, BERTBiLSTMCRF, BertTokenizer),
     "bert_bilstm": (BertConfig, BERTBiLSTM, BertTokenizer), 
     "bilstm_feature": (BertConfig, BiLSTM_FEATURE, BertTokenizer),
+    "bilstm_feature_crf": (BertConfig, BiLSTM_FEATURE_CRF, BertTokenizer),
     "bert_stanfordner": (BertConfig, BERTStanfordNER, BertTokenizer),
 }
 
@@ -928,7 +932,7 @@ def main():
     if args.model_type == 'bert_stanfordner':
         model_params['num_features'] = len(args.patterns)
 
-    elif args.model_type == 'bert_bilstm_crf':
+    elif args.model_type == 'bert_bilstm_crf' or args.model_type == "bilstm_feature_crf":
         model_params['method'] = args.method
         model_params['num_lstm_layers'] = args.num_lstm_layers
         model_params['lstm_bidirectional'] = args.lstm_bidirectional
@@ -937,6 +941,8 @@ def main():
         model_params['method'] = args.method
         model_params['num_lstm_layers'] = args.num_lstm_layers
         model_params['lstm_bidirectional']=args.lstm_bidirectional
+    elif args.model_type == 'bert_crf':
+        model_params['crf_dropout'] = args.crf_dropout
 
     model = model_class.from_pretrained(**model_params)
 
